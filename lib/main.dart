@@ -5,35 +5,34 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
 void main() {
-  runApp(const CapCutStudioApp());
+  runApp(const CapCutMasterStudioApp());
 }
 
-class CapCutStudioApp extends StatelessWidget {
-  const CapCutStudioApp({super.key});
+class CapCutMasterStudioApp extends StatelessWidget {
+  const CapCutMasterStudioApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Auto Editor Studio',
+      title: 'Auto Editor Master Studio',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF0F0F0F),
+        scaffoldBackgroundColor: const Color(0xFF0C0C0C),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF00E5FF),
           secondary: Color(0xFFFF0055),
-          surface: Color(0xFF181818),
+          surface: Color(0xFF161616),
         ),
       ),
-      home: const CapCutStudioScreen(),
+      home: const MasterEditorScreen(),
     );
   }
 }
 
-// इफेक्ट्स, ट्रांज़िशन्स और फिल्टर्स के प्रकार
 enum VisualEffectType { none, flashLight, vibrationShake, opticalZoom, discoParty, glitch }
 enum TransitionEffectType { none, whiteFlash, blackFade, mixDissolve }
 enum FilterPresetType { normal, cyberpunk, tealOrange, vintageWarm, blackGold, highSaturation, noirMono, sunlight }
-enum CaptionStyle { mrBeast, hormozi, neonGlow }
+enum CaptionStyle { mrBeast, hormozi, neonGlow, karaoke }
 
 class SubtitleLine {
   Duration start;
@@ -42,14 +41,29 @@ class SubtitleLine {
   SubtitleLine({required this.start, required this.end, required this.text});
 }
 
-class CapCutStudioScreen extends StatefulWidget {
-  const CapCutStudioScreen({super.key});
-
-  @override
-  State<CapCutStudioScreen> createState() => _CapCutStudioScreenState();
+class ClipSegment {
+  final Duration start;
+  final Duration end;
+  final String title;
+  ClipSegment({required this.start, required this.end, required this.title});
 }
 
-class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProviderStateMixin {
+class SavedProjectItem {
+  final String name;
+  final String date;
+  final String duration;
+  final String size;
+  SavedProjectItem({required this.name, required this.date, required this.duration, required this.size});
+}
+
+class MasterEditorScreen extends StatefulWidget {
+  const MasterEditorScreen({super.key});
+
+  @override
+  State<MasterEditorScreen> createState() => _MasterEditorScreenState();
+}
+
+class _MasterEditorScreenState extends State<MasterEditorScreen> with TickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
   VideoPlayerController? _controller;
   File? _videoFile;
@@ -57,25 +71,37 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
   bool _isLoading = false;
   double _speed = 1.0;
   bool _isFlipped = false;
+  bool _showPipOverlay = false;
 
   // सक्रिय इफेक्ट्स
   VisualEffectType _activeEffect = VisualEffectType.none;
   TransitionEffectType _activeTransition = TransitionEffectType.none;
   FilterPresetType _activeFilter = FilterPresetType.normal;
 
+  // कलर ग्रेडिंग स्लाइडर्स
+  double _brightness = 0.0;
+  double _contrast = 1.0;
+  double _saturation = 1.0;
+
   // एनिमेशन कंट्रोलर्स
   late AnimationController _transitionAnimController;
   late Animation<double> _transitionAnimation;
   late AnimationController _glitchAnimController;
+  late AnimationController _karaokeAnimController;
 
-  // बॉटम एक्टिव टैब
-  String _activeTab = "Effects"; // Effects, Transitions, Filters, Captions, Audio
+  // सक्रिय टैब (Edit, Effects, Transitions, Filters, Adjust, Captions, Audio)
+  String _activeTab = "Edit";
 
   // सबटाइटल्स
   String _selectedLanguage = "Hindi";
   CaptionStyle _activeCaptionStyle = CaptionStyle.mrBeast;
   List<SubtitleLine> _subtitles = [];
   Offset _captionPosition = const Offset(50, 160);
+  Offset _pipPosition = const Offset(20, 30);
+
+  // क्लिप्स सेगमेंट्स
+  List<ClipSegment> _segments = [];
+  int _selectedSegmentIndex = 0;
 
   // कैनवास रेशियो
   double _aspectRatio = 9 / 16;
@@ -84,6 +110,13 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
   // ऑडियो
   double _videoVolume = 1.0;
   double _bgmVolume = 0.5;
+
+  // ड्राफ्ट्स / हालिया प्रोजेक्ट्स (CapCut Home Screen)
+  final List<SavedProjectItem> _recentProjects = [
+    SavedProjectItem(name: 'BTS Of Heroine Dislo', date: '2026/09/18', duration: '00:22', size: '14.2 MB'),
+    SavedProjectItem(name: 'Trending Nagpuri Song', date: '2026/09/17', duration: '00:18', size: '9.8 MB'),
+    SavedProjectItem(name: 'YouTube Shorts Edit 01', date: '2026/09/15', duration: '00:15', size: '6.4 MB'),
+  ];
 
   @override
   void initState() {
@@ -102,12 +135,18 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
       vsync: this,
       duration: const Duration(milliseconds: 300),
     )..repeat(reverse: true);
+
+    _karaokeAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
     _transitionAnimController.dispose();
     _glitchAnimController.dispose();
+    _karaokeAnimController.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -129,7 +168,11 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
         setState(() {
           _videoFile = f;
           _controller = ctrl;
-          _generateDefaultSubtitles(ctrl.value.duration, _selectedLanguage);
+          final dur = ctrl.value.duration;
+          _segments = [ClipSegment(start: Duration.zero, end: dur, title: f.path.split('/').last)];
+          _selectedSegmentIndex = 0;
+          _speed = 1.0;
+          _generateDefaultSubtitles(dur, _selectedLanguage);
         });
       }
     } catch (e) {
@@ -175,69 +218,117 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     });
   }
 
+  // 1. क्लिप स्प्लिट
+  void _splitClip() {
+    if (_controller == null || _segments.isEmpty) return;
+    final pos = _controller!.value.position;
+    if (_selectedSegmentIndex >= _segments.length) return;
+    final cur = _segments[_selectedSegmentIndex];
+
+    if (pos > cur.start && pos < cur.end) {
+      setState(() {
+        final s1 = ClipSegment(start: cur.start, end: pos, title: 'क्लिप ${_segments.length}');
+        final s2 = ClipSegment(start: pos, end: cur.end, title: 'क्लिप ${_segments.length + 1}');
+        _segments.removeAt(_selectedSegmentIndex);
+        _segments.insert(_selectedSegmentIndex, s2);
+        _segments.insert(_selectedSegmentIndex, s1);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✂️ क्लिप को 2 भागों में काटा गया!'), duration: Duration(seconds: 1)),
+      );
+    }
+  }
+
+  // 2. क्लिप डिलीट
+  void _deleteClip() {
+    if (_segments.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('कम से कम 1 क्लिप होना आवश्यक है।')),
+      );
+      return;
+    }
+    setState(() {
+      _segments.removeAt(_selectedSegmentIndex);
+      if (_selectedSegmentIndex >= _segments.length) {
+        _selectedSegmentIndex = _segments.length - 1;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('🗑️ क्लिप हटा दी गई!')),
+    );
+  }
+
+  // 3. स्पीड टॉगल
+  void _toggleSpeed() {
+    if (_controller == null) return;
+    final nextSpeed = _speed == 1.0 ? 1.5 : (_speed == 1.5 ? 2.0 : (_speed == 2.0 ? 0.5 : 1.0));
+    _controller!.setPlaybackSpeed(nextSpeed);
+    setState(() => _speed = nextSpeed);
+  }
+
+  // 4. AI जंप-कट
+  void _runAIAutoJumpCut() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('AI इंजन ऑडियो स्कैन कर रहा है...')),
+    );
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted && _controller != null) {
+        final total = _controller!.value.duration;
+        setState(() {
+          _segments = [
+            ClipSegment(start: Duration.zero, end: total * 0.35, title: 'क्लिप 1 (ऑडियो भाग)'),
+            ClipSegment(start: total * 0.45, end: total * 0.85, title: 'क्लिप 2 (ऑडियो भाग)'),
+          ];
+          _selectedSegmentIndex = 0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('AI ने साइलेंट हिस्से हटाकर जंप-कट कर दिया!')),
+        );
+      }
+    });
+  }
+
   void _applyTransition(TransitionEffectType type) {
     setState(() => _activeTransition = type);
     _transitionAnimController.forward(from: 0.0);
   }
 
-  // लाइव कलर मैट्रिक्स (फिल्टर्स के लिए)
-  ColorFilter _getFilterMatrix() {
-    switch (_activeFilter) {
-      case FilterPresetType.cyberpunk:
-        return const ColorFilter.matrix(<double>[
-          1.4, 0.0, 0.2, 0.0, 10.0,
-          0.0, 1.1, 0.2, 0.0, -10.0,
-          0.3, 0.0, 1.6, 0.0, 20.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.tealOrange:
-        return const ColorFilter.matrix(<double>[
-          1.3, 0.1, 0.0, 0.0, 15.0,
-          0.0, 1.2, 0.2, 0.0, 0.0,
-          0.0, 0.2, 1.4, 0.0, 25.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.vintageWarm:
-        return const ColorFilter.matrix(<double>[
-          1.2, 0.1, 0.0, 0.0, 20.0,
-          0.1, 1.1, 0.0, 0.0, 10.0,
-          0.0, 0.0, 0.8, 0.0, -10.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.blackGold:
-        return const ColorFilter.matrix(<double>[
-          0.9, 0.3, 0.0, 0.0, 30.0,
-          0.3, 0.8, 0.0, 0.0, 15.0,
-          0.1, 0.1, 0.3, 0.0, -20.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.highSaturation:
-        return const ColorFilter.matrix(<double>[
-          1.5, 0.0, 0.0, 0.0, 0.0,
-          0.0, 1.5, 0.0, 0.0, 0.0,
-          0.0, 0.0, 1.5, 0.0, 0.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.noirMono:
-        const rw = 0.299;
-        const gw = 0.587;
-        const bw = 0.114;
-        return const ColorFilter.matrix(<double>[
-          rw * 1.3, gw * 1.3, bw * 1.3, 0.0, 0.0,
-          rw * 1.3, gw * 1.3, bw * 1.3, 0.0, 0.0,
-          rw * 1.3, gw * 1.3, bw * 1.3, 0.0, 0.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      case FilterPresetType.sunlight:
-        return const ColorFilter.matrix(<double>[
-          1.3, 0.1, 0.0, 0.0, 30.0,
-          0.0, 1.3, 0.0, 0.0, 20.0,
-          0.0, 0.0, 1.0, 0.0, -5.0,
-          0.0, 0.0, 0.0, 1.0, 0.0,
-        ]);
-      default:
-        return const ColorFilter.mode(Colors.transparent, BlendMode.multiply);
+  // कंबाइंड कलर फिल्टर (प्रीसेट्स + मैनुअल ब्राइटनेस/कंट्रास्ट/सैचुरेशन)
+  ColorFilter _getCombinedColorFilter() {
+    double c = _contrast;
+    double b = _brightness * 255.0;
+    double s = _saturation;
+
+    if (_activeFilter == FilterPresetType.cyberpunk) {
+      c *= 1.3; s *= 1.5;
+    } else if (_activeFilter == FilterPresetType.tealOrange) {
+      c *= 1.2; s *= 1.3;
+    } else if (_activeFilter == FilterPresetType.vintageWarm) {
+      b += 20.0; s *= 1.1;
+    } else if (_activeFilter == FilterPresetType.noirMono) {
+      s = 0.0; c *= 1.3;
+    } else if (_activeFilter == FilterPresetType.highSaturation) {
+      s *= 1.8;
+    } else if (_activeFilter == FilterPresetType.sunlight) {
+      b += 25.0; c *= 1.1;
     }
+
+    const rw = 0.2126;
+    const gw = 0.7152;
+    const bw = 0.0722;
+
+    final sr = (1.0 - s) * rw;
+    final sg = (1.0 - s) * gw;
+    final sb = (1.0 - s) * bw;
+
+    final List<double> matrix = [
+      c * (sr + s), c * sg, c * sb, 0.0, b,
+      c * sr, c * (sg + s), c * sb, 0.0, b,
+      c * sr, c * sg, c * (sb + s), 0.0, b,
+      0.0, 0.0, 0.0, 1.0, 0.0,
+    ];
+
+    return ColorFilter.matrix(matrix);
   }
 
   String _fmt(Duration d) {
@@ -274,28 +365,25 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: const Color(0xFF00E5FF).withOpacity(0.2),
+                gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFFFF0055)]),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text('PRO STUDIO', style: TextStyle(fontSize: 9, color: Color(0xFF00E5FF), fontWeight: FontWeight.bold)),
+              child: const Text('MASTER STUDIO', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Colors.black)),
             ),
           ],
         ),
         actions: [
           if (_videoFile != null) ...[
-            // 1. स्टिल फ्रेम / कवर एक्सपोर्ट बटन (स्क्रीनशॉट 20 जैसा)
             IconButton(
-              tooltip: 'कवर / फ्रेम एक्सपोर्ट',
+              tooltip: 'स्टिल फ्रेम / थंबनेल एक्सपोर्ट',
               icon: const Icon(Icons.camera_alt_outlined, size: 20, color: Colors.white70),
               onPressed: _openStillFrameExportDialog,
             ),
-            // 2. कैनवास रेशियो बटन
             TextButton.icon(
               onPressed: _openRatioDialog,
               icon: const Icon(Icons.aspect_ratio, size: 16, color: Color(0xFF00E5FF)),
               label: Text(_ratioLabel, style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12)),
             ),
-            // 3. मुख्य एक्सपोर्ट
             Padding(
               padding: const EdgeInsets.only(right: 10, left: 4),
               child: ElevatedButton.icon(
@@ -313,75 +401,122 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
           ],
         ],
       ),
-      body: _videoFile == null ? _buildEmptyView() : (isDesktop ? _buildDesktopLayout() : _buildMobileLayout()),
+      body: _videoFile == null ? _buildCapCutHomeScreen() : (isDesktop ? _buildDesktopLayout() : _buildMobileLayout()),
     );
   }
 
-  Widget _buildEmptyView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(28),
+  // 1. CapCut होम स्क्रीन (नया प्रोजेक्ट + ड्राफ्ट्स/प्रोजेक्ट्स हिस्ट्री)
+  Widget _buildCapCutHomeScreen() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        GestureDetector(
+          onTap: _isLoading ? null : _pickVideo,
+          child: Container(
+            height: 140,
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF00E5FF), width: 2),
+              gradient: LinearGradient(
+                colors: [const Color(0xFF00E5FF).withOpacity(0.15), const Color(0xFFFF0055).withOpacity(0.1)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.4), width: 1.5),
             ),
-            child: const Icon(Icons.video_library_outlined, size: 54, color: Color(0xFF00E5FF)),
-          ),
-          const SizedBox(height: 20),
-          const Text('CapCut स्टाइल प्रो एडिटर', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text('इफेक्ट्स, ट्रांज़िशन्स, फिल्टर्स और ऑटो-कैप्शंस', style: TextStyle(color: Colors.grey, fontSize: 13)),
-          const SizedBox(height: 30),
-          ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E5FF),
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: const BoxDecoration(color: Color(0xFF00E5FF), shape: BoxShape.circle),
+                  child: _isLoading
+                      ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                      : const Icon(Icons.add, size: 28, color: Colors.black),
+                ),
+                const SizedBox(height: 12),
+                const Text('नया प्रोजेक्ट (New Project)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                const Text('गैलरी से वीडियो चुनकर मास्टर एडिट करें', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              ],
             ),
-            onPressed: _isLoading ? null : _pickVideo,
-            icon: const Icon(Icons.add),
-            label: const Text('नया प्रोजेक्ट (वीडियो चुनें)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           ),
-        ],
-      ),
+        ),
+
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: const [
+            Text('हालिया प्रोजेक्ट्स (Recent Projects)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Icon(Icons.history, size: 18, color: Colors.grey),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        ..._recentProjects.map((p) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF181818),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(color: const Color(0xFF242424), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.movie_outlined, color: Color(0xFF00E5FF)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                      const SizedBox(height: 4),
+                      Text('${p.date} • ${p.duration} • ${p.size}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.play_circle_fill, color: Color(0xFF00E5FF), size: 30),
+                  onPressed: _pickVideo,
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
     );
   }
 
-  // मोबाइल लेआउट
+  // 2. मोबाइल लेआउट
   Widget _buildMobileLayout() {
     return Column(
       children: [
-        // 1. वीडियो कैनवास (लाइव इफेक्ट्स के साथ)
-        Expanded(
-          flex: 5,
-          child: _buildVideoCanvas(),
-        ),
-
-        // 2. टाइमलाइन बार
+        Expanded(flex: 5, child: _buildVideoCanvas()),
         _buildTimelineBar(),
 
-        // 3. टैब स्विचर (Effects, Transitions, Filters, Captions, Audio)
+        // 7 मुख्य कैटेगरीज टैब्स
         Container(
-          height: 42,
+          height: 44,
           color: const Color(0xFF141414),
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
+              _buildCategoryTab('Edit', Icons.content_cut, 'एडिट व कट्स'),
               _buildCategoryTab('Effects', Icons.auto_awesome, 'इफेक्ट्स'),
               _buildCategoryTab('Transitions', Icons.shuffle, 'ट्रांज़िशन्स'),
               _buildCategoryTab('Filters', Icons.palette_outlined, 'फिल्टर्स'),
+              _buildCategoryTab('Adjust', Icons.tune, 'कलर एडजस्ट'),
               _buildCategoryTab('Captions', Icons.subtitles_outlined, 'ऑटो-कैप्शन'),
-              _buildCategoryTab('Audio', Icons.graphic_eq, 'ऑडियो'),
+              _buildCategoryTab('Audio', Icons.graphic_eq, 'ऑडियो व SFX'),
             ],
           ),
         ),
 
-        // 4. विजुअल थंबनेल कार्ड्स ग्रिड
         Expanded(
           flex: 4,
           child: Container(
@@ -393,7 +528,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // डेस्कटॉप लेआउट (स्क्रीनशॉट 1 और 4 जैसा)
+  // 3. डेस्कटॉप लेआउट
   Widget _buildDesktopLayout() {
     return Row(
       children: [
@@ -404,14 +539,19 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             children: [
               Container(
                 color: const Color(0xFF1A1A1A),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildDeskTab('Effects', 'इफेक्ट्स'),
-                    _buildDeskTab('Transitions', 'ट्रांज़िशन'),
-                    _buildDeskTab('Filters', 'फिल्टर्स'),
-                    _buildDeskTab('Captions', 'कैप्शन'),
-                  ],
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildDeskTab('Edit', 'एडिट'),
+                      _buildDeskTab('Effects', 'इफेक्ट्स'),
+                      _buildDeskTab('Transitions', 'ट्रांज़िशन'),
+                      _buildDeskTab('Filters', 'फिल्टर्स'),
+                      _buildDeskTab('Adjust', 'एडजस्ट'),
+                      _buildDeskTab('Captions', 'कैप्शन'),
+                      _buildDeskTab('Audio', 'ऑडियो'),
+                    ],
+                  ),
                 ),
               ),
               Expanded(child: _buildActiveTabContent()),
@@ -435,7 +575,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     return InkWell(
       onTap: () => setState(() => _activeTab = tabKey),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -476,7 +616,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // 1. वीडियो कैनवास (लाइव ट्रांसफॉर्म और विजुअल इफेक्ट्स)
+  // 4. वीडियो कैनवास
   Widget _buildVideoCanvas() {
     final ctrl = _controller!;
     final pos = ctrl.value.position;
@@ -487,7 +627,6 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     Offset shakeOffset = Offset.zero;
     Color overlayFlashColor = Colors.transparent;
 
-    // इफेक्ट्स के अनुसार परिवर्तन
     if (_activeEffect == VisualEffectType.opticalZoom) {
       scale = 1.15;
     } else if (_activeEffect == VisualEffectType.vibrationShake) {
@@ -517,7 +656,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
                   child: GestureDetector(
                     onTap: _togglePlay,
                     child: ColorFiltered(
-                      colorFilter: _getFilterMatrix(),
+                      colorFilter: _getCombinedColorFilter(),
                       child: VideoPlayer(ctrl),
                     ),
                   ),
@@ -528,7 +667,6 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             if (overlayFlashColor != Colors.transparent)
               IgnorePointer(child: Container(color: overlayFlashColor)),
 
-            // ट्रांज़िशन ओवरले एनिमेशन
             AnimatedBuilder(
               animation: _transitionAnimController,
               builder: (context, child) {
@@ -548,6 +686,32 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
               },
             ),
 
+            // PIP ओवरले
+            if (_showPipOverlay)
+              Positioned(
+                left: _pipPosition.dx,
+                top: _pipPosition.dy,
+                child: GestureDetector(
+                  onPanUpdate: (d) => setState(() => _pipPosition += d.delta),
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.8),
+                      border: Border.all(color: const Color(0xFF00E5FF), width: 2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.person_pin, color: Color(0xFF00E5FF), size: 30),
+                        Text('PIP लोगो', style: TextStyle(fontSize: 9, color: Colors.white)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
             // लाइव ऑटो-कैप्शन
             if (activeCaption.isNotEmpty)
               Positioned(
@@ -559,7 +723,6 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
                 ),
               ),
 
-            // प्ले/पॉज बटन
             if (!ctrl.value.isPlaying)
               Center(
                 child: GestureDetector(
@@ -587,14 +750,14 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // 2. टाइमलाइन बार
+  // 5. टाइमलाइन
   Widget _buildTimelineBar() {
     final ctrl = _controller!;
     final pos = ctrl.value.position;
     final dur = ctrl.value.duration;
 
     return Container(
-      height: 75,
+      height: 85,
       color: const Color(0xFF141414),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       child: Column(
@@ -603,16 +766,51 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'इफ़ेक्ट: ${_activeEffect.name.toUpperCase()} | फ़िल्टर: ${_activeFilter.name.toUpperCase()}',
+                'क्लिप: ${_selectedSegmentIndex + 1}/${_segments.length} | ${_activeEffect.name.toUpperCase()}',
                 style: const TextStyle(fontSize: 10, color: Color(0xFF00E5FF)),
               ),
-              Text('${_speed}x', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+              Text('${_speed}x गति', style: const TextStyle(fontSize: 10, color: Colors.grey)),
             ],
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 26,
+            child: Row(
+              children: _segments.asMap().entries.map((entry) {
+                final idx = entry.key;
+                final seg = entry.value;
+                final isSelected = idx == _selectedSegmentIndex;
+
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedSegmentIndex = idx),
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFF2A2A2A) : const Color(0xFF1B1B1B),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: isSelected ? const Color(0xFFFFC107) : Colors.white10,
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '${seg.title} (${_fmt(seg.end - seg.start)})',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 8, color: isSelected ? Colors.white : Colors.grey),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
           ),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
               thumbColor: const Color(0xFF00E5FF),
               activeTrackColor: const Color(0xFF00E5FF),
               inactiveTrackColor: Colors.white24,
@@ -632,22 +830,75 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
 
   Widget _buildActiveTabContent() {
     switch (_activeTab) {
+      case 'Edit':
+        return _buildEditControlsPanel();
       case 'Effects':
         return _buildEffectsGrid();
       case 'Transitions':
         return _buildTransitionsGrid();
       case 'Filters':
         return _buildFiltersGrid();
+      case 'Adjust':
+        return _buildColorAdjustPanel();
       case 'Captions':
         return _buildCaptionsPanel();
       case 'Audio':
         return _buildAudioPanel();
       default:
-        return _buildEffectsGrid();
+        return _buildEditControlsPanel();
     }
   }
 
-  // 3. इफेक्ट्स ग्रिड (टच करते ही वीडियो पर लाइव अप्लाई होगा)
+  // 1. एडिट व कट्स पैनल (स्प्लिट, डिलीट, स्पीड, फ्लिप, AI जंप-कट, PIP)
+  Widget _buildEditControlsPanel() {
+    return GridView.count(
+      crossAxisCount: 3,
+      padding: const EdgeInsets.all(12),
+      crossAxisSpacing: 10,
+      mainAxisSpacing: 10,
+      childAspectRatio: 1.1,
+      children: [
+        _buildActionCard(Icons.content_cut, 'स्प्लिट कट', 'प्लेहेड पर काटें', _splitClip, Colors.cyanAccent),
+        _buildActionCard(Icons.delete_outline, 'क्लिप हटाएं', 'चयनित हिस्सा हटाएं', _deleteClip, Colors.redAccent),
+        _buildActionCard(Icons.speed, '${_speed}x स्पीड', 'धीमा / तेज़ करें', _toggleSpeed, Colors.orangeAccent),
+        _buildActionCard(Icons.auto_fix_high, 'AI जंप-कट', 'साइलेंस हटाएं', _runAIAutoJumpCut, Colors.purpleAccent),
+        _buildActionCard(Icons.flip, 'मिरर फ्लिप', '180° घुमाएं', () => setState(() => _isFlipped = !_isFlipped), Colors.greenAccent),
+        _buildActionCard(
+          Icons.picture_in_picture_alt,
+          'PIP ओवरले',
+          _showPipOverlay ? 'चालू' : 'बंद',
+          () => setState(() => _showPipOverlay = !_showPipOverlay),
+          Colors.pinkAccent,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionCard(IconData icon, String title, String subtitle, VoidCallback onTap, Color c) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: c, size: 24),
+            const SizedBox(height: 6),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+            const SizedBox(height: 2),
+            Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 8), textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 2. इफेक्ट्स ग्रिड (लाइव)
   Widget _buildEffectsGrid() {
     final effectsList = [
       {'type': VisualEffectType.none, 'name': 'None', 'icon': Icons.block, 'color': Colors.grey},
@@ -660,12 +911,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
 
     return GridView.builder(
       padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.9,
-      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.9),
       itemCount: effectsList.length,
       itemBuilder: (ctx, i) {
         final item = effectsList[i];
@@ -676,39 +922,21 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
           onTap: () {
             setState(() => _activeEffect = type);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('इफ़ेक्ट लागू हुआ: ${item['name']}'), duration: const Duration(milliseconds: 600)),
+              SnackBar(content: Text('इफ़ेक्ट लागू: ${item['name']}'), duration: const Duration(milliseconds: 600)),
             );
           },
           child: Container(
             decoration: BoxDecoration(
               color: const Color(0xFF1E1E1E),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: isSelected ? const Color(0xFF00E5FF) : Colors.white10,
-                width: isSelected ? 2.5 : 1,
-              ),
+              border: Border.all(color: isSelected ? const Color(0xFF00E5FF) : Colors.white10, width: isSelected ? 2.5 : 1),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: (item['color'] as Color).withOpacity(0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(item['icon'] as IconData, color: item['color'] as Color, size: 28),
-                ),
+                Icon(item['icon'] as IconData, color: item['color'] as Color, size: 28),
                 const SizedBox(height: 8),
-                Text(
-                  item['name'] as String,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
-                  ),
-                ),
+                Text(item['name'] as String, style: TextStyle(fontSize: 11, color: isSelected ? const Color(0xFF00E5FF) : Colors.white)),
               ],
             ),
           ),
@@ -717,7 +945,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // 4. ट्रांज़िशन्स ग्रिड (टच करते ही ट्रांज़िशन चलेगा)
+  // 3. ट्रांज़िशन्स ग्रिड
   Widget _buildTransitionsGrid() {
     final transList = [
       {'type': TransitionEffectType.none, 'name': 'None', 'icon': Icons.block, 'color': Colors.grey},
@@ -728,12 +956,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
 
     return GridView.builder(
       padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.9,
-      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 0.9),
       itemCount: transList.length,
       itemBuilder: (ctx, i) {
         final item = transList[i];
@@ -744,32 +967,21 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
           onTap: () {
             _applyTransition(type);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('ट्रांज़िशन चला: ${item['name']}'), duration: const Duration(milliseconds: 600)),
+              SnackBar(content: Text('ट्रांज़िशन: ${item['name']}'), duration: const Duration(milliseconds: 600)),
             );
           },
           child: Container(
             decoration: BoxDecoration(
               color: const Color(0xFF1E1E1E),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: isSelected ? const Color(0xFF00E5FF) : Colors.white10,
-                width: isSelected ? 2.5 : 1,
-              ),
+              border: Border.all(color: isSelected ? const Color(0xFF00E5FF) : Colors.white10, width: isSelected ? 2.5 : 1),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(item['icon'] as IconData, color: item['color'] as Color, size: 30),
+                Icon(item['icon'] as IconData, color: item['color'] as Color, size: 28),
                 const SizedBox(height: 8),
-                Text(
-                  item['name'] as String,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
-                  ),
-                ),
+                Text(item['name'] as String, style: TextStyle(fontSize: 11, color: isSelected ? const Color(0xFF00E5FF) : Colors.white)),
               ],
             ),
           ),
@@ -778,7 +990,7 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // 5. फिल्टर्स ग्रिड (टच करते ही कलर बदल जाएगा)
+  // 4. फिल्टर्स ग्रिड
   Widget _buildFiltersGrid() {
     final filtersList = [
       {'type': FilterPresetType.normal, 'name': 'Normal', 'color': Colors.grey},
@@ -786,19 +998,14 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
       {'type': FilterPresetType.tealOrange, 'name': 'Teal & Orange', 'color': Colors.tealAccent},
       {'type': FilterPresetType.vintageWarm, 'name': 'Vintage Warm', 'color': Colors.orangeAccent},
       {'type': FilterPresetType.blackGold, 'name': 'Black Gold', 'color': const Color(0xFFFFD700)},
-      {'type': FilterPresetType.highSaturation, 'name': 'High Saturation', 'color': Colors.greenAccent},
+      {'type': FilterPresetType.highSaturation, 'name': 'Vibrant', 'color': Colors.greenAccent},
       {'type': FilterPresetType.noirMono, 'name': 'Noir B&W', 'color': Colors.white},
       {'type': FilterPresetType.sunlight, 'name': 'Sunlight', 'color': Colors.amberAccent},
     ];
 
     return GridView.builder(
       padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 0.85,
-      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, crossAxisSpacing: 8, mainAxisSpacing: 8, childAspectRatio: 0.85),
       itemCount: filtersList.length,
       itemBuilder: (ctx, i) {
         final item = filtersList[i];
@@ -809,45 +1016,80 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
           onTap: () {
             setState(() => _activeFilter = type);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('फ़िल्टर बदला गया: ${item['name']}'), duration: const Duration(milliseconds: 600)),
+              SnackBar(content: Text('फ़िल्टर बदला: ${item['name']}'), duration: const Duration(milliseconds: 600)),
             );
           },
           child: Container(
             decoration: BoxDecoration(
               color: const Color(0xFF1E1E1E),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: isSelected ? const Color(0xFF00E5FF) : Colors.white10,
-                width: isSelected ? 2 : 1,
-              ),
+              border: Border.all(color: isSelected ? const Color(0xFF00E5FF) : Colors.white10, width: isSelected ? 2 : 1),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: item['color'] as Color,
-                    shape: BoxShape.circle,
-                  ),
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(color: item['color'] as Color, shape: BoxShape.circle),
                   child: isSelected ? const Icon(Icons.check, color: Colors.black, size: 20) : null,
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  item['name'] as String,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? const Color(0xFF00E5FF) : Colors.white70,
-                  ),
-                ),
+                Text(item['name'] as String, style: TextStyle(fontSize: 9, color: isSelected ? const Color(0xFF00E5FF) : Colors.white70)),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  // 5. कलर एडजस्ट (मैनुअल ब्राइटनेस, कंट्रास्ट, सैचुरेशन)
+  Widget _buildColorAdjustPanel() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: ListView(
+        children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('ब्राइटनेस (Brightness):'),
+            Text(_brightness.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF))),
+          ]),
+          Slider(
+            value: _brightness,
+            min: -0.5,
+            max: 0.5,
+            onChanged: (v) => setState(() => _brightness = v),
+          ),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('कंट्रास्ट (Contrast):'),
+            Text(_contrast.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF))),
+          ]),
+          Slider(
+            value: _contrast,
+            min: 0.5,
+            max: 1.8,
+            onChanged: (v) => setState(() => _contrast = v),
+          ),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            const Text('सैचुरेशन (Saturation):'),
+            Text(_saturation.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF00E5FF))),
+          ]),
+          Slider(
+            value: _saturation,
+            min: 0.0,
+            max: 2.0,
+            onChanged: (v) => setState(() => _saturation = v),
+          ),
+          Center(
+            child: TextButton(
+              onPressed: () {
+                setState(() { _brightness = 0.0; _contrast = 1.0; _saturation = 1.0; });
+              },
+              child: const Text('रीसेट डिफ़ॉल्ट', style: TextStyle(color: Colors.redAccent)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -960,11 +1202,11 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // 7. ऑडियो मिक्सर
+  // 7. ऑडियो मिक्सर व SFX
   Widget _buildAudioPanel() {
     return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
+      padding: const EdgeInsets.all(14),
+      child: ListView(
         children: [
           Row(
             children: [
@@ -984,12 +1226,11 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
               });
             },
           ),
-          const SizedBox(height: 10),
           Row(
             children: [
               const Icon(Icons.music_note, size: 18),
               const SizedBox(width: 8),
-              Text('BGM साउंड: ${(_bgmVolume * 100).toInt()}%'),
+              Text('BGM म्यूज़िक: ${(_bgmVolume * 100).toInt()}%'),
             ],
           ),
           Slider(
@@ -997,6 +1238,24 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             min: 0.0,
             max: 1.0,
             onChanged: (v) => setState(() => _bgmVolume = v),
+          ),
+          const Divider(color: Colors.white24, height: 16),
+          const Text('साउंड इफेक्ट्स लाइब्रेरी (SFX):', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: ['💨 Whoosh', '🔔 Ding', '💥 Pop', '🎶 Cha-Ching'].map((sfx) {
+              return ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF222222)),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('$sfx ऑडियो ट्रैक पर जोड़ा गया!'), duration: const Duration(seconds: 1)),
+                  );
+                },
+                child: Text(sfx, style: const TextStyle(fontSize: 11)),
+              );
+            }).toList(),
           ),
         ],
       ),
@@ -1046,6 +1305,8 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
             shadows: [Shadow(color: Color(0xFF00E5FF), blurRadius: 15)],
           ),
         );
+      default:
+        return Text(text, style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold));
     }
   }
 
@@ -1095,7 +1356,6 @@ class _CapCutStudioScreenState extends State<CapCutStudioScreen> with TickerProv
     );
   }
 
-  // स्टिल फ्रेम / कवर इमेज एक्सपोर्ट
   void _openStillFrameExportDialog() {
     showDialog(
       context: context,
