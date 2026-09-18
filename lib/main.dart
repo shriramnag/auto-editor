@@ -143,10 +143,11 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     });
   }
 
-  // 1. क्लिप स्प्लिट
+  // क्लिप स्प्लिट
   void _splitClip() {
     if (_videoController == null || _segments.isEmpty) return;
     final pos = _videoController!.value.position;
+    if (_selectedSegmentIndex >= _segments.length) return;
     final cur = _segments[_selectedSegmentIndex];
 
     if (pos > cur.start && pos < cur.end) {
@@ -160,10 +161,14 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('✂️ क्लिप को 2 हिस्सों में स्प्लिट कर दिया गया!'), duration: Duration(seconds: 1)),
       );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('कृपया कर्सर को चुनी हुई क्लिप के अंदर रखें।'), duration: Duration(seconds: 1)),
+      );
     }
   }
 
-  // 2. क्लिप डिलीट
+  // क्लिप डिलीट
   void _deleteClip() {
     if (_segments.length <= 1) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -182,27 +187,35 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     );
   }
 
-  // कलर मैट्रिक्स
+  // सुरक्षित कलर मैट्रिक्स (Bug Fixed)
   ColorFilter _buildColorFilter() {
-    final c = _contrast;
-    final b = _brightness * 255;
-    final s = _saturation;
+    final double c = _contrast;
+    final double b = _brightness * 255.0;
+    final double s = _saturation;
 
-    const rw = 0.2126;
-    const gw = 0.7152;
-    const bw = 0.0722;
+    const double rw = 0.2126;
+    const double gw = 0.7152;
+    const double bw = 0.0722;
 
-    final sr = (1 - s) * rw;
-    final sg = (1 - s) * gw;
-    final sb = (1 - s) * bw;
+    final double sr = (1.0 - s) * rw;
+    final double sg = (1.0 - s) * gw;
+    final double sb = (1.0 - s) * bw;
 
-    return ColorFilter.matrix(<double>);
+    final List<double> matrix = [
+      c * (sr + s), c * sg, c * sb, 0.0, b,
+      c * sr, c * (sg + s), c * sb, 0.0, b,
+      c * sr, c * sg, c * (sb + s), 0.0, b,
+      0.0, 0.0, 0.0, 1.0, 0.0,
+    ];
+
+    return ColorFilter.matrix(matrix);
   }
 
   String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
+    final int totalSecs = d.inSeconds.abs();
+    final int minutes = (totalSecs ~/ 60) % 60;
+    final int seconds = totalSecs % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   // सबटाइटल टेम्पलेट्स रेंडरर
@@ -216,7 +229,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
             style: TextStyle(
               fontSize: 22 * _captionScale,
               fontWeight: FontWeight.w900,
-              color: const Color(0xFFFFEB3B), // Beast Yellow
+              color: const Color(0xFFFFEB3B),
               shadows: const [
                 Shadow(offset: Offset(-2, -2), color: Colors.black),
                 Shadow(offset: Offset(2, -2), color: Colors.black),
@@ -234,7 +247,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.85),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF39FF14), width: 2), // Neon Lime
+            border: Border.all(color: const Color(0xFF39FF14), width: 2),
           ),
           child: Text(
             _captionText.toUpperCase(),
@@ -430,7 +443,6 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // मिरर / फ्लिप ट्रांसफॉर्म
                   Transform(
                     alignment: Alignment.center,
                     transform: Matrix4.rotationY(_isFlipped ? math.pi : 0),
@@ -443,7 +455,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                     ),
                   ),
 
-                  // ऑन-स्क्रीन ऑटो-कैप्शन (उंगली से ड्रैग करने योग्य)
+                  // ऑन-स्क्रीन ऑटो-कैप्शन
                   Positioned(
                     left: _captionPosition.dx,
                     top: _captionPosition.dy,
@@ -514,7 +526,6 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           color: const Color(0xFF101010),
           child: Column(
             children: [
-              // रूलर
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                 child: Row(
@@ -577,7 +588,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                       SizedBox(width: 6),
                       Icon(Icons.subtitles, size: 10, color: Color(0xFFFF007F)),
                       SizedBox(width: 4),
-                      Text('ऑटो-सबटाइटल ट्रैक (MrBeast Active)', style: TextStyle(fontSize: 8, color: Color(0xFFFF007F))),
+                      Text('ऑटो-सबटाइटल ट्रैक (Active)', style: TextStyle(fontSize: 8, color: Color(0xFFFF007F))),
                     ],
                   ),
                 ),
@@ -604,7 +615,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           ),
         ),
 
-        // 3. 14 एडवांस टूल्स का बॉटम बार
+        // 3. बॉटम टूल्स
         Container(
           height: 68,
           color: const Color(0xFF080808),
@@ -891,7 +902,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF161616),
-      builder: (_) => Container(
+      builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -905,7 +916,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                 return ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF262626)),
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('$sfx साउंड इफ़ेक्ट टाइमलाइन पर जोड़ दिया गया!')),
                     );
@@ -925,7 +936,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF161616),
-      builder: (_) => Container(
+      builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -939,21 +950,21 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                   label: const Text('Teal & Orange'),
                   onPressed: () {
                     setState(() { _contrast = 1.3; _saturation = 1.4; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
                 ActionChip(
                   label: const Text('Noir B&W'),
                   onPressed: () {
                     setState(() { _saturation = 0.0; _contrast = 1.4; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
                 ActionChip(
                   label: const Text('Vintage Warm'),
                   onPressed: () {
                     setState(() { _brightness = 0.1; _saturation = 1.2; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
               ],
@@ -969,7 +980,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF161616),
-      builder: (_) => Container(
+      builder: (ctx) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -984,7 +995,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                   selected: _aspectRatio == 9 / 16,
                   onSelected: (_) {
                     setState(() { _aspectRatio = 9 / 16; _ratioName = "9:16 (Shorts)"; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
                 ChoiceChip(
@@ -992,7 +1003,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                   selected: _aspectRatio == 16 / 9,
                   onSelected: (_) {
                     setState(() { _aspectRatio = 16 / 9; _ratioName = "16:9 (YT)"; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
                 ChoiceChip(
@@ -1000,7 +1011,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                   selected: _aspectRatio == 1.0,
                   onSelected: (_) {
                     setState(() { _aspectRatio = 1.0; _ratioName = "1:1 (Post)"; });
-                    Navigator.pop(context);
+                    Navigator.pop(ctx);
                   },
                 ),
               ],
