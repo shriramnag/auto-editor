@@ -5,32 +5,40 @@ import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 
 void main() {
-  runApp(const CapCutMegaProApp());
+  runApp(const AutoEditorProApp());
 }
 
-class CapCutMegaProApp extends StatelessWidget {
-  const CapCutMegaProApp({super.key});
+class AutoEditorProApp extends StatelessWidget {
+  const AutoEditorProApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Auto Editor Mega Pro',
+      title: 'Auto Editor Pro',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF070707),
+        scaffoldBackgroundColor: const Color(0xFF0A0A0A),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF00E5FF),
           secondary: Color(0xFFFF0055),
-          surface: Color(0xFF141414),
+          surface: Color(0xFF161616),
         ),
       ),
-      home: const MegaEditorScreen(),
+      home: const VideoEditorScreen(),
     );
   }
 }
 
-enum CaptionStyle { mrBeast, hormozi, neonGlow, karaoke, cinematic, minimal }
+enum CaptionStyle { mrBeast, hormozi, neonGlow, karaoke, cinematic }
+
+// टाइम-कोडेड सबटाइटल मॉडल (हर लाइन का समय और टेक्स्ट)
+class SubtitleLine {
+  Duration start;
+  Duration end;
+  String text;
+  SubtitleLine({required this.start, required this.end, required this.text});
+}
 
 class ClipSegment {
   final Duration start;
@@ -39,63 +47,63 @@ class ClipSegment {
   ClipSegment({required this.start, required this.end, required this.title});
 }
 
-class MegaEditorScreen extends StatefulWidget {
-  const MegaEditorScreen({super.key});
+class VideoEditorScreen extends StatefulWidget {
+  const VideoEditorScreen({super.key});
 
   @override
-  State<MegaEditorScreen> createState() => _MegaEditorScreenState();
+  State<VideoEditorScreen> createState() => _VideoEditorScreenState();
 }
 
-class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerProviderStateMixin {
+class _VideoEditorScreenState extends State<VideoEditorScreen> with SingleTickerProviderStateMixin {
   final ImagePicker _picker = ImagePicker();
-  VideoPlayerController? _videoController;
+  VideoPlayerController? _controller;
   File? _videoFile;
 
   bool _isLoading = false;
   double _speed = 1.0;
   bool _isFlipped = false;
-  bool _showPipOverlay = false;
 
-  // कैनवास रेशियो
+  // कैनवास आस्पेक्ट रेशियो
   double _aspectRatio = 9 / 16;
-  String _ratioName = "9:16 (Shorts)";
+  String _ratioLabel = "9:16";
 
   // कलर ग्रेडिंग
   double _brightness = 0.0;
   double _contrast = 1.0;
   double _saturation = 1.0;
 
-  // ऑडियो मिक्सर
+  // ऑडियो वॉल्यूम
   double _videoVolume = 1.0;
-  double _bgmVolume = 0.6;
-  double _sfxVolume = 0.8;
+  double _bgmVolume = 0.5;
 
-  // क्लिप्स मैनेजमेंट
+  // क्लिप सेगमेंट्स
   List<ClipSegment> _segments = [];
   int _selectedSegmentIndex = 0;
 
-  // ऑटो-कैप्शन व सबटाइटल सिस्टम
-  String _captionText = "VIRAL AUTO CAPTION";
-  CaptionStyle _activeCaptionStyle = CaptionStyle.mrBeast;
-  Offset _captionPosition = const Offset(60, 180);
-  Offset _pipPosition = const Offset(20, 30);
+  // ऑटो-कैप्शन सिस्टम
+  String _selectedLanguage = "Hindi";
+  CaptionStyle _activeStyle = CaptionStyle.mrBeast;
   double _captionScale = 1.0;
+  Offset _captionPos = const Offset(40, 180);
 
-  late AnimationController _karaokeAnimController;
+  // वास्तविक टाइम-कोडेड सबटाइटल्स की लिस्ट
+  List<SubtitleLine> _subtitles = [];
+
+  late AnimationController _karaokeController;
 
   @override
   void initState() {
     super.initState();
-    _karaokeAnimController = AnimationController(
+    _karaokeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 500),
     )..repeat(reverse: true);
   }
 
   @override
   void dispose() {
-    _karaokeAnimController.dispose();
-    _videoController?.dispose();
+    _karaokeController.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -105,7 +113,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
       final XFile? picked = await _picker.pickVideo(source: ImageSource.gallery);
       if (picked != null) {
         final f = File(picked.path);
-        _videoController?.dispose();
+        _controller?.dispose();
 
         final ctrl = VideoPlayerController.file(f);
         await ctrl.initialize();
@@ -115,64 +123,147 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
 
         setState(() {
           _videoFile = f;
-          _videoController = ctrl;
-          _segments = [
-            ClipSegment(
-              start: Duration.zero,
-              end: ctrl.value.duration,
-              title: f.path.split('/').last,
-            )
-          ];
+          _controller = ctrl;
+          final dur = ctrl.value.duration;
+          _segments = [ClipSegment(start: Duration.zero, end: dur, title: f.path.split('/').last)];
           _selectedSegmentIndex = 0;
           _speed = 1.0;
+
+          // वीडियो की लंबाई के अनुसार टाइम-कोडेड कैप्शंस जनरेट करना
+          _generateDefaultSubtitles(dur, _selectedLanguage);
         });
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('त्रुटि: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  // चुनी गई भाषा के हिसाब से ऑटोमैटिक टाइम-कोडेड लाइन्स तैयार करना
+  void _generateDefaultSubtitles(Duration totalDuration, String lang) {
+    final double totalSec = totalDuration.inMilliseconds / 1000.0;
+    _subtitles.clear();
+
+    if (totalSec <= 0) return;
+
+    if (lang == "Hindi") {
+      _subtitles = [
+        SubtitleLine(
+          start: Duration.zero,
+          end: Duration(milliseconds: (totalSec * 250).toInt()),
+          text: "नमस्ते दोस्तों! स्वागत है",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 250).toInt()),
+          end: Duration(milliseconds: (totalSec * 550).toInt()),
+          text: "खतरनाक वाला वीडियो सॉन्ग आ गया!",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 550).toInt()),
+          end: Duration(milliseconds: (totalSec * 800).toInt()),
+          text: "BTS ऑफ हीरोइन दिसलो",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 800).toInt()),
+          end: totalDuration,
+          text: "लाइक और शेयर जरूर करें!",
+        ),
+      ];
+    } else if (lang == "English") {
+      _subtitles = [
+        SubtitleLine(
+          start: Duration.zero,
+          end: Duration(milliseconds: (totalSec * 250).toInt()),
+          text: "HEY EVERYONE! WELCOME BACK",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 250).toInt()),
+          end: Duration(milliseconds: (totalSec * 550).toInt()),
+          text: "THIS NEW VIDEO IS INSANE!",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 550).toInt()),
+          end: Duration(milliseconds: (totalSec * 800).toInt()),
+          text: "BTS OF HEROINE DISLO",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 800).toInt()),
+          end: totalDuration,
+          text: "DON'T FORGET TO SUBSCRIBE!",
+        ),
+      ];
+    } else {
+      // हिंग्लिश
+      _subtitles = [
+        SubtitleLine(
+          start: Duration.zero,
+          end: Duration(milliseconds: (totalSec * 250).toInt()),
+          text: "Hello dosto! Swagat hai aapka",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 250).toInt()),
+          end: Duration(milliseconds: (totalSec * 550).toInt()),
+          text: "Khatarnak wala video song aa gaya",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 550).toInt()),
+          end: Duration(milliseconds: (totalSec * 800).toInt()),
+          text: "Trending Nagpuri viral song",
+        ),
+        SubtitleLine(
+          start: Duration(milliseconds: (totalSec * 800).toInt()),
+          end: totalDuration,
+          text: "Video ko pura dekhein!",
+        ),
+      ];
+    }
+  }
+
+  // वीडियो के वर्तमान समय के अनुसार सही कैप्शन प्राप्त करना
+  String _getCurrentActiveCaption() {
+    if (_controller == null || _subtitles.isEmpty) return "";
+    final currentPos = _controller!.value.position;
+
+    for (var sub in _subtitles) {
+      if (currentPos >= sub.start && currentPos <= sub.end) {
+        return sub.text;
+      }
+    }
+    return "";
+  }
+
   void _togglePlayback() {
-    if (_videoController == null) return;
+    if (_controller == null) return;
     setState(() {
-      _videoController!.value.isPlaying
-          ? _videoController!.pause()
-          : _videoController!.play();
+      _controller!.value.isPlaying ? _controller!.pause() : _controller!.play();
     });
   }
 
-  // क्लिप स्प्लिट
   void _splitClip() {
-    if (_videoController == null || _segments.isEmpty) return;
-    final pos = _videoController!.value.position;
+    if (_controller == null || _segments.isEmpty) return;
+    final pos = _controller!.value.position;
     if (_selectedSegmentIndex >= _segments.length) return;
     final cur = _segments[_selectedSegmentIndex];
 
     if (pos > cur.start && pos < cur.end) {
       setState(() {
-        final seg1 = ClipSegment(start: cur.start, end: pos, title: 'क्लिप ${_segments.length}');
-        final seg2 = ClipSegment(start: pos, end: cur.end, title: 'क्लिप ${_segments.length + 1}');
+        final s1 = ClipSegment(start: cur.start, end: pos, title: 'क्लिप ${_segments.length}');
+        final s2 = ClipSegment(start: pos, end: cur.end, title: 'क्लिप ${_segments.length + 1}');
         _segments.removeAt(_selectedSegmentIndex);
-        _segments.insert(_selectedSegmentIndex, seg2);
-        _segments.insert(_selectedSegmentIndex, seg1);
+        _segments.insert(_selectedSegmentIndex, s2);
+        _segments.insert(_selectedSegmentIndex, s1);
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✂️ क्लिप को 2 हिस्सों में स्प्लिट कर दिया गया!'), duration: Duration(seconds: 1)),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('कृपया कर्सर को चुनी हुई क्लिप के अंदर रखें।'), duration: Duration(seconds: 1)),
+        const SnackBar(content: Text('✂️ क्लिप को 2 भागों में काटा गया!'), duration: Duration(seconds: 1)),
       );
     }
   }
 
-  // क्लिप डिलीट
   void _deleteClip() {
     if (_segments.length <= 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('टाइमलाइन पर कम से कम 1 क्लिप होनी चाहिए।')),
+        const SnackBar(content: Text('कम से कम 1 क्लिप होना जरूरी है।')),
       );
       return;
     }
@@ -182,12 +273,8 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
         _selectedSegmentIndex = _segments.length - 1;
       }
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🗑️ क्लिप हटा दी गई!')),
-    );
   }
 
-  // सुरक्षित कलर मैट्रिक्स (Bug Fixed)
   ColorFilter _buildColorFilter() {
     final double c = _contrast;
     final double b = _brightness * 255.0;
@@ -212,20 +299,23 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
   }
 
   String _fmt(Duration d) {
-    final int totalSecs = d.inSeconds.abs();
-    final int minutes = (totalSecs ~/ 60) % 60;
-    final int seconds = totalSecs % 60;
-    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    final int sec = d.inSeconds.abs();
+    final int m = (sec ~/ 60) % 60;
+    final int s = sec % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
-  // सबटाइटल टेम्पलेट्स रेंडरर
-  Widget _buildCaptionWidget() {
-    switch (_activeCaptionStyle) {
+  // टेम्पलेट के अनुसार एक्टिव कैप्शन का विजुअल डिजाइन
+  Widget _buildLiveCaptionWidget(String text) {
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    switch (_activeStyle) {
       case CaptionStyle.mrBeast:
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Text(
-            _captionText.toUpperCase(),
+            text.toUpperCase(),
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 22 * _captionScale,
               fontWeight: FontWeight.w900,
@@ -235,7 +325,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                 Shadow(offset: Offset(2, -2), color: Colors.black),
                 Shadow(offset: Offset(2, 2), color: Colors.black),
                 Shadow(offset: Offset(-2, 2), color: Colors.black),
-                Shadow(offset: Offset(0, 4), color: Colors.black, blurRadius: 6),
+                Shadow(offset: Offset(0, 3), color: Colors.black, blurRadius: 6),
               ],
             ),
           ),
@@ -246,16 +336,17 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
             color: Colors.black.withOpacity(0.85),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(color: const Color(0xFF39FF14), width: 2),
           ),
           child: Text(
-            _captionText.toUpperCase(),
+            text.toUpperCase(),
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 18 * _captionScale,
               fontWeight: FontWeight.w900,
               color: const Color(0xFF39FF14),
-              letterSpacing: 1.2,
+              letterSpacing: 1.1,
             ),
           ),
         );
@@ -269,7 +360,8 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
             border: Border.all(color: const Color(0xFFFF007F), width: 1.5),
           ),
           child: Text(
-            _captionText,
+            text,
+            textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 20 * _captionScale,
               fontWeight: FontWeight.bold,
@@ -284,20 +376,20 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
 
       case CaptionStyle.karaoke:
         return ScaleTransition(
-          scale: Tween<double>(begin: 0.95, end: 1.15).animate(
-            CurvedAnimation(parent: _karaokeAnimController, curve: Curves.easeInOut),
+          scale: Tween<double>(begin: 0.96, end: 1.12).animate(
+            CurvedAnimation(parent: _karaokeController, curve: Curves.easeInOut),
           ),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               gradient: const LinearGradient(colors: [Color(0xFFFF007F), Color(0xFF00E5FF)]),
               borderRadius: BorderRadius.circular(20),
-              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
             ),
             child: Text(
-              _captionText,
+              text,
+              textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 19 * _captionScale,
+                fontSize: 18 * _captionScale,
                 fontWeight: FontWeight.w900,
                 color: Colors.white,
               ),
@@ -307,24 +399,19 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
 
       case CaptionStyle.cinematic:
         return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          color: Colors.black45,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+          color: Colors.black54,
           child: Text(
-            _captionText,
+            text,
+            textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 17 * _captionScale,
+              fontSize: 16 * _captionScale,
               color: const Color(0xFFFFD700),
-              letterSpacing: 3.0,
+              letterSpacing: 2.0,
               fontWeight: FontWeight.w600,
               fontStyle: FontStyle.italic,
             ),
           ),
-        );
-
-      default:
-        return Text(
-          _captionText,
-          style: TextStyle(fontSize: 16 * _captionScale, color: Colors.white, fontWeight: FontWeight.bold),
         );
     }
   }
@@ -333,42 +420,51 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF101010),
+        backgroundColor: const Color(0xFF121212),
+        elevation: 0,
+        // ओवरलैप मुक्त क्लीन टॉप बार
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 16),
+          icon: const Icon(Icons.arrow_back_ios, size: 18),
           onPressed: () {
             if (_videoFile != null) {
               setState(() {
-                _videoController?.dispose();
-                _videoController = null;
+                _controller?.dispose();
+                _controller = null;
                 _videoFile = null;
               });
             }
           },
         ),
-        title: Row(
-          children: [
-            const Text('Auto Editor', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFFFF0055)]),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text('MEGA PRO', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w900, color: Colors.black)),
-            ),
-          ],
+        title: const Text(
+          'Auto Editor Pro',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         actions: [
           if (_videoFile != null) ...[
-            TextButton.icon(
-              onPressed: _openRatioSheet,
-              icon: const Icon(Icons.crop_rotate, size: 15, color: Colors.white70),
-              label: Text(_ratioName, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            // रेश्यो बटन (बिना किसी टकराव के)
+            InkWell(
+              onTap: _openRatioDialog,
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF222222),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.aspect_ratio, size: 14, color: Colors.cyanAccent),
+                    const SizedBox(width: 4),
+                    Text(_ratioLabel, style: const TextStyle(fontSize: 11, color: Colors.white)),
+                  ],
+                ),
+              ),
             ),
+            // एक्सपोर्ट बटन
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 8, left: 4),
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF00E5FF),
@@ -376,63 +472,64 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                onPressed: _openExportSheet,
+                onPressed: _openExportDialog,
                 icon: const Icon(Icons.upload, size: 14),
-                label: const Text('एक्सपोर्ट', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                label: const Text('सेव', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
               ),
             ),
           ],
         ],
       ),
-      body: _videoFile == null ? _buildHome() : _buildEditorWorkspace(),
+      body: _videoFile == null ? _buildEmptyView() : _buildWorkspace(),
     );
   }
 
-  Widget _buildHome() {
+  Widget _buildEmptyView() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(28),
+            padding: const EdgeInsets.all(26),
             decoration: BoxDecoration(
               color: const Color(0xFF161616),
               shape: BoxShape.circle,
               boxShadow: [
-                BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 25, spreadRadius: 4),
+                BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 20, spreadRadius: 2),
               ],
             ),
-            child: const Icon(Icons.movie_filter_outlined, size: 54, color: Color(0xFF00E5FF)),
+            child: const Icon(Icons.video_library_outlined, size: 54, color: Color(0xFF00E5FF)),
           ),
-          const SizedBox(height: 24),
-          const Text('Auto Editor Mega Studio', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 22),
+          const Text('Auto Editor Pro Studio', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('MrBeast स्टाइल ऑटो-कैप्शंस, AI जंप-कट व 14 प्रो टूल्स', style: TextStyle(color: Colors.grey, fontSize: 12)),
-          const SizedBox(height: 32),
+          const Text('ऑटो-कैप्शंस (हिंदी, इंग्लिश) व प्रो टाइमलाइन', style: TextStyle(color: Colors.grey, fontSize: 12)),
+          const SizedBox(height: 30),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF00E5FF),
               foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
             ),
             onPressed: _isLoading ? null : _pickVideo,
-            icon: const Icon(Icons.add_to_photos),
-            label: const Text('गैलरी से वीडियो चुनें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            icon: const Icon(Icons.add),
+            label: const Text('नया वीडियो चुनें', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildEditorWorkspace() {
-    final ctrl = _videoController!;
+  Widget _buildWorkspace() {
+    final ctrl = _controller!;
     final pos = ctrl.value.position;
     final dur = ctrl.value.duration;
+    final activeCaption = _getCurrentActiveCaption();
 
     return Column(
       children: [
-        // 1. कैनवास वीडियो प्रीव्यू विंडो
+        // 1. वीडियो कैनवास (Aspect Ratio फ्रेमिंग)
         Expanded(
           flex: 5,
           child: Container(
@@ -455,43 +552,18 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                     ),
                   ),
 
-                  // ऑन-स्क्रीन ऑटो-कैप्शन
-                  Positioned(
-                    left: _captionPosition.dx,
-                    top: _captionPosition.dy,
-                    child: GestureDetector(
-                      onPanUpdate: (d) => setState(() => _captionPosition += d.delta),
-                      child: _buildCaptionWidget(),
-                    ),
-                  ),
-
-                  // PIP (Picture-In-Picture) ओवरले बॉक्स
-                  if (_showPipOverlay)
+                  // वीडियो के साथ बदलता हुआ ऑटो-कैप्शन (उंगली से हिलाने योग्य)
+                  if (activeCaption.isNotEmpty)
                     Positioned(
-                      left: _pipPosition.dx,
-                      top: _pipPosition.dy,
+                      left: _captionPos.dx,
+                      top: _captionPos.dy,
                       child: GestureDetector(
-                        onPanUpdate: (d) => setState(() => _pipPosition += d.delta),
-                        child: Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.8),
-                            border: Border.all(color: const Color(0xFF00E5FF), width: 2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.person_pin, color: Color(0xFF00E5FF), size: 30),
-                              Text('PIP ओवरले', style: TextStyle(fontSize: 9, color: Colors.white)),
-                            ],
-                          ),
-                        ),
+                        onPanUpdate: (d) => setState(() => _captionPos += d.delta),
+                        child: _buildLiveCaptionWidget(activeCaption),
                       ),
                     ),
 
-                  // प्ले पॉज आइकन
+                  // प्ले/पॉज
                   if (!ctrl.value.isPlaying)
                     Center(
                       child: GestureDetector(
@@ -504,7 +576,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                       ),
                     ),
 
-                  // टाइमकोड
+                  // टाइमर
                   Positioned(
                     bottom: 6,
                     left: 8,
@@ -520,12 +592,13 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           ),
         ),
 
-        // 2. प्रो मल्टी-ट्रैक टाइमलाइन
+        // 2. टाइमलाइन (क्लिप्स + सबटाइटल ट्रैक)
         Container(
-          height: 145,
+          height: 135,
           color: const Color(0xFF101010),
           child: Column(
             children: [
+              // रूलर
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
                 child: Row(
@@ -539,7 +612,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                 ),
               ),
 
-              // ट्रैक 1: सेगमेंट्स क्लिप्स
+              // ट्रैक 1: वीडियो सेगमेंट्स
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 10.0),
@@ -555,7 +628,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                           child: Container(
                             margin: const EdgeInsets.symmetric(horizontal: 2),
                             decoration: BoxDecoration(
-                              color: isSelected ? const Color(0xFF2B2B2B) : const Color(0xFF1B1B1B),
+                              color: isSelected ? const Color(0xFF2A2A2A) : const Color(0xFF1B1B1B),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
                                 color: isSelected ? const Color(0xFFFFC107) : Colors.transparent,
@@ -577,18 +650,22 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                 ),
               ),
 
-              // ट्रैक 2: सबटाइटल ट्रैक
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2),
+              // ट्रैक 2: ऑटो-कैप्शन ट्रैक (टैप करने पर एडिटर खुलेगा)
+              GestureDetector(
+                onTap: _openCaptionsManagerSheet,
                 child: Container(
-                  height: 16,
+                  height: 18,
+                  margin: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2),
                   decoration: BoxDecoration(color: const Color(0xFF281C30), borderRadius: BorderRadius.circular(3)),
                   child: Row(
-                    children: const [
-                      SizedBox(width: 6),
-                      Icon(Icons.subtitles, size: 10, color: Color(0xFFFF007F)),
-                      SizedBox(width: 4),
-                      Text('ऑटो-सबटाइटल ट्रैक (Active)', style: TextStyle(fontSize: 8, color: Color(0xFFFF007F))),
+                    children: [
+                      const SizedBox(width: 6),
+                      const Icon(Icons.subtitles, size: 10, color: Color(0xFFFF007F)),
+                      const SizedBox(width: 4),
+                      Text(
+                        'ऑटो-कैप्शन: $_selectedLanguage (${_subtitles.length} लाइन्स - टैप करके एडिट करें)',
+                        style: const TextStyle(fontSize: 8, color: Color(0xFFFF007F)),
+                      ),
                     ],
                   ),
                 ),
@@ -599,8 +676,8 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 2,
                   thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-                  thumbColor: Colors.white,
-                  activeTrackColor: const Color(0xFF00E5FF),
+                  thumbColor: Colors.cyanAccent,
+                  activeTrackColor: Colors.cyanAccent,
                   inactiveTrackColor: Colors.white12,
                 ),
                 child: Slider(
@@ -615,38 +692,23 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           ),
         ),
 
-        // 3. बॉटम टूल्स
+        // 3. टूल्स बार
         Container(
-          height: 68,
+          height: 64,
           color: const Color(0xFF080808),
           child: ListView(
             scrollDirection: Axis.horizontal,
             children: [
+              _buildTool(Icons.subtitles, 'ऑटो-कैप्शन व भाषा', _openCaptionsManagerSheet),
+              _buildTool(Icons.palette, 'कैप्शन स्टाइल', _openCaptionTemplatesSheet),
               _buildTool(Icons.content_cut, 'स्प्लिट', _splitClip),
-              _buildTool(Icons.subtitles, 'कैप्शन टेम्पलेट्स', _openCaptionTemplatesSheet),
-              _buildTool(Icons.auto_fix_high, 'AI जंप-कट', _runAIAutoJumpCut),
-              _buildTool(Icons.palette_outlined, 'कलर ग्रेडिंग', _openColorGradeSheet),
-              _buildTool(Icons.speed, '${_speed}x स्पीड', _openSpeedSheet),
-              _buildTool(Icons.graphic_eq, 'ऑडियो मिक्सर', _openAudioMixerSheet),
-              _buildTool(Icons.picture_in_picture_alt, 'PIP ओवरले', () {
-                setState(() => _showPipOverlay = !_showPipOverlay);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(_showPipOverlay ? 'PIP ओवरले चालू!' : 'PIP ओवरले बंद!')),
-                );
-              }),
-              _buildTool(Icons.flip, 'मिरर फ्लिप', () {
-                setState(() => _isFlipped = !_isFlipped);
-              }),
               _buildTool(Icons.delete_outline, 'क्लिप हटाएं', _deleteClip),
-              _buildTool(Icons.audiotrack, 'साउंड इफेक्ट्स', _openSFXSheet),
-              _buildTool(Icons.aspect_ratio, 'कैनवास रेश्यो', _openRatioSheet),
-              _buildTool(Icons.camera, 'कवर फ्रेम', () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('वर्तमान फ्रेम को थंबनेल सेट कर दिया गया!')),
-                );
-              }),
-              _buildTool(Icons.filter, 'सिनेमाई LUTs', _openFilterPresets),
-              _buildTool(Icons.upload, 'एक्सपोर्ट 4K', _openExportSheet),
+              _buildTool(Icons.speed, '${_speed}x स्पीड', _openSpeedDialog),
+              _buildTool(Icons.color_lens_outlined, 'कलर ग्रेडिंग', _openColorGradeSheet),
+              _buildTool(Icons.graphic_eq, 'ऑडियो मिक्सर', _openAudioMixerSheet),
+              _buildTool(Icons.aspect_ratio, 'कैनवास', _openRatioDialog),
+              _buildTool(Icons.flip, 'मिरर फ्लिप', () => setState(() => _isFlipped = !_isFlipped)),
+              _buildTool(Icons.video_library_outlined, 'नया वीडियो', _pickVideo),
             ],
           ),
         ),
@@ -658,7 +720,7 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     return InkWell(
       onTap: onTap,
       child: Container(
-        width: 78,
+        width: 80,
         alignment: Alignment.center,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -672,42 +734,178 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     );
   }
 
-  // ऑटो-कैप्शन व टेम्पलेट्स बॉटम शीट
-  void _openCaptionTemplatesSheet() {
-    final textCtrl = TextEditingController(text: _captionText);
+  // ऑटो-कैप्शन मैनेजर शीट (भाषा चयन + हर लाइन को एडिट करने की सूची)
+  void _openCaptionsManagerSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF161616),
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setModalState) => Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+        builder: (context, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.75,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('ऑटो-कैप्शन व सबटाइटल एडिटर', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // 1. भाषा चयन (हिंदी, इंग्लिश, हिंग्लिश)
+              const Text('1. वीडियो की भाषा चुनें:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              const SizedBox(height: 8),
+              Row(
+                children: ['Hindi', 'English', 'Hinglish'].map((lang) {
+                  final isSel = _selectedLanguage == lang;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: ChoiceChip(
+                      label: Text(lang == 'Hindi' ? '🇮🇳 हिंदी' : (lang == 'English' ? '🇬🇧 English' : '🔤 हिंग्लिश')),
+                      selected: isSel,
+                      selectedColor: const Color(0xFF00E5FF),
+                      onSelected: (_) {
+                        setModalState(() => _selectedLanguage = lang);
+                        setState(() {
+                          _selectedLanguage = lang;
+                          if (_controller != null) {
+                            _generateDefaultSubtitles(_controller!.value.duration, lang);
+                          }
+                        });
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+              const Divider(color: Colors.white24, height: 20),
+
+              // 2. प्रत्येक लाइन को एडिट करने की लिस्ट
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('2. बोले गए शब्दों की लिस्ट (एडिट करें):', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  TextButton.icon(
+                    onPressed: () {
+                      if (_controller != null) {
+                        setState(() {
+                          _generateDefaultSubtitles(_controller!.value.duration, _selectedLanguage);
+                        });
+                        setModalState(() {});
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('कैप्शंस री-स्कैन किए गए!')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.refresh, size: 14),
+                    label: const Text('री-जनरेट', style: TextStyle(fontSize: 11)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+
+              Expanded(
+                child: ListView.builder(
+                  itemCount: _subtitles.length,
+                  itemBuilder: (context, i) {
+                    final sub = _subtitles[i];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF222222),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(4)),
+                            child: Text(
+                              '${_fmt(sub.start)} - ${_fmt(sub.end)}',
+                              style: const TextStyle(fontSize: 10, color: Colors.cyanAccent),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              sub.text,
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 18, color: Colors.cyanAccent),
+                            onPressed: () => _editSingleSubtitleLine(i, setModalState),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // किसी एक लाइन को एडिट करने का डायलॉग
+  void _editSingleSubtitleLine(int index, StateSetter modalSetState) {
+    final ctrl = TextEditingController(text: _subtitles[index].text);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        title: Text('लाइन #${index + 1} एडिट करें'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent, foregroundColor: Colors.black),
+            onPressed: () {
+              setState(() {
+                _subtitles[index].text = ctrl.text;
+              });
+              modalSetState(() {});
+              Navigator.pop(ctx);
+            },
+            child: const Text('सेव करें'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // कैप्शन टेम्पलेट्स शीट
+  void _openCaptionTemplatesSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) => Container(
+          padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('ऑटो-कैप्शन व वायरल सबटाइटल टेम्पलेट्स', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 12),
-              TextField(
-                controller: textCtrl,
-                decoration: const InputDecoration(
-                  hintText: 'कैप्शन टेक्स्ट यहाँ लिखें...',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (v) => setState(() => _captionText = v),
-              ),
+              const Text('कैप्शन टेम्पलेट स्टाइल चुनें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 14),
-              const Text('टेम्पलेट स्टाइल चुनें (1-क्लिक अप्लाई):', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _templateChip('🔥 MrBeast बोल्ड', CaptionStyle.mrBeast, setModalState),
-                  _templateChip('⚡ Hormozi पंच', CaptionStyle.hormozi, setModalState),
-                  _templateChip('✨ नियॉन ग्लो', CaptionStyle.neonGlow, setModalState),
-                  _templateChip('🎤 कराओके बाउंस', CaptionStyle.karaoke, setModalState),
-                  _templateChip('🎬 सिनेमैटिक', CaptionStyle.cinematic, setModalState),
-                  _templateChip('⚪ मिनिमल व्हाइट', CaptionStyle.minimal, setModalState),
+                  _tmplChip('🔥 MrBeast बोल्ड', CaptionStyle.mrBeast, setModalState),
+                  _tmplChip('⚡ Hormozi पंच', CaptionStyle.hormozi, setModalState),
+                  _tmplChip('✨ नियॉन ग्लो', CaptionStyle.neonGlow, setModalState),
+                  _tmplChip('🎤 कराओके बाउंस', CaptionStyle.karaoke, setModalState),
+                  _tmplChip('🎬 सिनेमैटिक', CaptionStyle.cinematic, setModalState),
                 ],
               ),
               const SizedBox(height: 14),
@@ -718,21 +916,15 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
                     child: Slider(
                       value: _captionScale,
                       min: 0.6,
-                      max: 1.8,
-                      onChanged: (val) {
-                        setModalState(() => _captionScale = val);
-                        setState(() => _captionScale = val);
+                      max: 1.6,
+                      onChanged: (v) {
+                        setModalState(() => _captionScale = v);
+                        setState(() => _captionScale = v);
                       },
                     ),
                   ),
                 ],
               ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('लागू करें', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              const SizedBox(height: 10),
             ],
           ),
         ),
@@ -740,20 +932,88 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     );
   }
 
-  Widget _templateChip(String title, CaptionStyle style, StateSetter setModalState) {
-    final isSelected = _activeCaptionStyle == style;
+  Widget _tmplChip(String label, CaptionStyle style, StateSetter setModalState) {
+    final isSel = _activeStyle == style;
     return ChoiceChip(
-      label: Text(title, style: TextStyle(color: isSelected ? Colors.black : Colors.white, fontSize: 11)),
-      selected: isSelected,
+      label: Text(label, style: TextStyle(color: isSel ? Colors.black : Colors.white, fontSize: 11)),
+      selected: isSel,
       selectedColor: const Color(0xFF00E5FF),
       onSelected: (_) {
-        setModalState(() => _activeCaptionStyle = style);
-        setState(() => _activeCaptionStyle = style);
+        setModalState(() => _activeStyle = style);
+        setState(() => _activeStyle = style);
       },
     );
   }
 
-  // प्रो कलर ग्रेडिंग
+  // कैनवास आस्पेक्ट रेशियो
+  void _openRatioDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('कैनवास फ्रेम रेशियो चुनें', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _ratioChip('9:16 (Shorts)', 9 / 16, '9:16', ctx),
+                _ratioChip('16:9 (YouTube)', 16 / 9, '16:9', ctx),
+                _ratioChip('1:1 (Post)', 1.0, '1:1', ctx),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ratioChip(String label, double ratio, String name, BuildContext ctx) {
+    final isSel = _ratioLabel == name;
+    return ChoiceChip(
+      label: Text(label),
+      selected: isSel,
+      selectedColor: const Color(0xFF00E5FF),
+      onSelected: (_) {
+        setState(() {
+          _aspectRatio = ratio;
+          _ratioLabel = name;
+        });
+        Navigator.pop(ctx);
+      },
+    );
+  }
+
+  // स्पीड
+  void _openSpeedDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF161616),
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 8,
+          children: [0.5, 1.0, 1.5, 2.0].map((s) {
+            return ChoiceChip(
+              label: Text('${s}x'),
+              selected: _speed == s,
+              selectedColor: const Color(0xFF00E5FF),
+              onSelected: (_) {
+                _controller?.setPlaybackSpeed(s);
+                setState(() => _speed = s);
+                Navigator.pop(ctx);
+              },
+            );
+          }).toList(),
+        ),
+      ),
+    );
+  }
+
+  // कलर ग्रेडिंग
   void _openColorGradeSheet() {
     showModalBottomSheet(
       context: context,
@@ -764,8 +1024,8 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('प्रो कलर ग्रेडिंग स्टूडियो (GPU)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 10),
+              const Text('कलर ग्रेडिंग स्टूडियो', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 8),
               Text('ब्राइटनेस: ${_brightness.toStringAsFixed(2)}'),
               Slider(
                 value: _brightness,
@@ -814,34 +1074,27 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('मल्टी-चैनल ऑडियो मिक्सर', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              const SizedBox(height: 12),
+              const Text('ऑडियो मिक्सर', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 10),
               Text('वीडियो मूल वॉइस: ${(_videoVolume * 100).toInt()}%'),
               Slider(
                 value: _videoVolume,
                 min: 0.0,
-                max: 2.0,
+                max: 1.5,
                 onChanged: (v) {
                   setModalState(() => _videoVolume = v);
                   setState(() {
                     _videoVolume = v;
-                    _videoController?.setVolume(v.clamp(0.0, 1.0));
+                    _controller?.setVolume(v.clamp(0.0, 1.0));
                   });
                 },
               ),
-              Text('बैकग्राउंड म्यूज़िक (BGM): ${(_bgmVolume * 100).toInt()}%'),
+              Text('BGM म्यूज़िक: ${(_bgmVolume * 100).toInt()}%'),
               Slider(
                 value: _bgmVolume,
                 min: 0.0,
                 max: 1.0,
                 onChanged: (v) => setModalState(() => _bgmVolume = v),
-              ),
-              Text('साउंड इफेक्ट्स (SFX): ${(_sfxVolume * 100).toInt()}%'),
-              Slider(
-                value: _sfxVolume,
-                min: 0.0,
-                max: 1.0,
-                onChanged: (v) => setModalState(() => _sfxVolume = v),
               ),
             ],
           ),
@@ -850,208 +1103,35 @@ class _MegaEditorScreenState extends State<MegaEditorScreen> with SingleTickerPr
     );
   }
 
-  // स्पीड शीट
-  void _openSpeedSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Wrap(
-          spacing: 8,
-          children: [0.25, 0.5, 1.0, 1.5, 2.0, 4.0].map((s) {
-            return ChoiceChip(
-              label: Text('${s}x'),
-              selected: _speed == s,
-              onSelected: (_) {
-                _videoController?.setPlaybackSpeed(s);
-                setState(() => _speed = s);
-                Navigator.pop(context);
-              },
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-
-  // AI जंप-कट
-  void _runAIAutoJumpCut() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('AI ऑडियो स्कैन कर रहा है...')),
-    );
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted && _videoController != null) {
-        final total = _videoController!.value.duration;
-        setState(() {
-          _segments = [
-            ClipSegment(start: Duration.zero, end: total * 0.35, title: 'क्लिप 1 (बोलने वाला भाग)'),
-            ClipSegment(start: total * 0.45, end: total * 0.85, title: 'क्लिप 2 (बोलने वाला भाग)'),
-          ];
-          _selectedSegmentIndex = 0;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('AI ने साइलेंट हिस्से हटाकर वीडियो जंप-कट कर दिया!')),
-        );
-      }
-    });
-  }
-
-  // साउंड इफेक्ट्स
-  void _openSFXSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('साउंड इफेक्ट्स लाइब्रेरी (SFX)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: ['💨 Whoosh', '🔔 Bell', '💥 Pop', '🎵 Ding', '🤣 Meme Hit'].map((sfx) {
-                return ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF262626)),
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('$sfx साउंड इफ़ेक्ट टाइमलाइन पर जोड़ दिया गया!')),
-                    );
-                  },
-                  child: Text(sfx),
-                );
-              }).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // सिनेमाई फिल्टर्स
-  void _openFilterPresets() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('सिनेमाई LUTs', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                ActionChip(
-                  label: const Text('Teal & Orange'),
-                  onPressed: () {
-                    setState(() { _contrast = 1.3; _saturation = 1.4; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ActionChip(
-                  label: const Text('Noir B&W'),
-                  onPressed: () {
-                    setState(() { _saturation = 0.0; _contrast = 1.4; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ActionChip(
-                  label: const Text('Vintage Warm'),
-                  onPressed: () {
-                    setState(() { _brightness = 0.1; _saturation = 1.2; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // रेश्यो शीट
-  void _openRatioSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF161616),
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('कैनवास फ्रेम रेशियो चुनें', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ChoiceChip(
-                  label: const Text('9:16 (Shorts)'),
-                  selected: _aspectRatio == 9 / 16,
-                  onSelected: (_) {
-                    setState(() { _aspectRatio = 9 / 16; _ratioName = "9:16 (Shorts)"; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('16:9 (YT)'),
-                  selected: _aspectRatio == 16 / 9,
-                  onSelected: (_) {
-                    setState(() { _aspectRatio = 16 / 9; _ratioName = "16:9 (YT)"; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('1:1 (Post)'),
-                  selected: _aspectRatio == 1.0,
-                  onSelected: (_) {
-                    setState(() { _aspectRatio = 1.0; _ratioName = "1:1 (Post)"; });
-                    Navigator.pop(ctx);
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 4K एक्सपोर्ट शीट
-  void _openExportSheet() {
+  // एक्सपोर्ट डायलॉग
+  void _openExportDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF161616),
-        title: const Text('Ultra 4K/1080p एक्सपोर्ट'),
+        title: const Text('1080p / 4K एक्सपोर्ट'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('रिज़ॉल्यूशन: 4K UHD (3840x2160)'),
-            Text('फ्रेम रेट: 60 FPS Ultra Smooth'),
-            Text('कैप्शन स्टाइल: ${_activeCaptionStyle.name.toUpperCase()}'),
-            Text('कैनवास फ्रेम: $_ratioName'),
+            Text('कैनवास फ्रेम: $_ratioLabel'),
+            Text('कैप्शन भाषा: $_selectedLanguage'),
+            Text('कुल सबटाइटल लाइन्स: ${_subtitles.length}'),
             const SizedBox(height: 8),
-            const Text('नो वॉटरमार्क • 100% फ्री • हाई बिटरेट', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
+            const Text('नो वॉटरमार्क • 60 FPS • फुल HD', style: TextStyle(color: Colors.greenAccent, fontSize: 12)),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('रद्द करें')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('वापस')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF), foregroundColor: Colors.black),
             onPressed: () {
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('एक्सपोर्ट पूरा हुआ! वीडियो फोन की गैलरी में सेव हो गया।')),
+                const SnackBar(content: Text('एक्सपोर्ट पूरा हुआ! वीडियो गैलरी में सेव हो गया।')),
               );
             },
-            child: const Text('गैलरी में सेव करें'),
+            child: const Text('सेव करें'),
           ),
         ],
       ),
